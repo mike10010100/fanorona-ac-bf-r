@@ -525,7 +525,7 @@ body {
 
 .board-svg-wrapper {
   width: 100%;
-  max-height: calc(100vh - 285px);
+  max-height: calc(100vh - 335px);
   aspect-ratio: 960 / 560;
   margin: 0 auto;
   position: relative;

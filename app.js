@@ -491,6 +491,7 @@ const state = {
 
   // Currently selected piece on the board (before or during a chain)
   selectedSq: null,
+  filterStartSq: null,
   // Pending Approach vs Withdrawal disambiguation modal state
   pendingAmbiguousStep: null, // { from, to, dir, approach, withdraw }
 
@@ -2052,7 +2053,7 @@ function renderAssistantSidebar() {
     if (uniqueStarts.length > 1) {
       const allPill = document.createElement('button');
       allPill.type = 'button';
-      allPill.className = `filter-pill ${state.filterStartSq === null ? 'active' : ''}`;
+      allPill.className = `filter-pill ${state.filterStartSq == null ? 'active' : ''}`;
       allPill.textContent = `All (${allRankedTurns.length})`;
       allPill.addEventListener('click', () => {
         state.filterStartSq = null;
@@ -2079,7 +2080,7 @@ function renderAssistantSidebar() {
   }
 
   const filteredTurns =
-    state.filterStartSq !== null
+    state.filterStartSq != null
       ? allRankedTurns.filter(x => x.turn.steps[0]?.from === state.filterStartSq)
       : allRankedTurns;
 

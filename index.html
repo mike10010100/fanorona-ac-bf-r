@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fanorona Tactical Solver — ACIV: Black Flag Resynched</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Top Header & Game Setup Controls -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-emblem" aria-hidden="true">
+          <svg viewBox="0 0 36 36" width="32" height="32">
+            <path d="M18 3 L31 29 L25 29 L18 14 L11 29 L5 29 Z" fill="none" stroke="currentColor" stroke-width="2.2"/>
+            <path d="M9 24 Q18 19 27 24" fill="none" stroke="currentColor" stroke-width="2.2"/>
+            <circle cx="18" cy="9" r="2" fill="currentColor"/>
+          </svg>
+        </div>
+        <div>
+          <h1>FANORONA TACTICAL SOLVER</h1>
+          <p class="subtitle">Assassin's Creed IV: Black Flag — Resynched Companion</p>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <div class="control-group">
+          <label for="player-color-select">My Piece Color (Bottom)</label>
+          <div class="segmented-control" id="player-color-control">
+            <button type="button" class="seg-btn active" data-value="W" id="btn-play-white" title="You play White pieces">
+              <span class="piece-dot white-dot"></span> White (Light)
+            </button>
+            <button type="button" class="seg-btn" data-value="B" id="btn-play-black" title="You play Black pieces">
+              <span class="piece-dot black-dot"></span> Black (Dark)
+            </button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <label>Who Moves First?</label>
+          <div class="segmented-control" id="first-turn-control">
+            <button type="button" class="seg-btn active" data-value="player" id="btn-first-player">
+              I Go First
+            </button>
+            <button type="button" class="seg-btn" data-value="ai" id="btn-first-ai">
+              AC AI Goes First
+            </button>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <label for="solver-depth">Solver Depth</label>
+          <select id="solver-depth" class="select-input">
+            <option value="900">Fast (0.9s)</option>
+            <option value="1800" selected>Master (1.8s)</option>
+            <option value="3500">Grandmaster (3.5s)</option>
+          </select>
+        </div>
+
+        <div class="control-group actions-group">
+          <button type="button" class="btn btn-secondary" id="btn-new-game" title="Reset to starting board">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+            New Match
+          </button>
+          <button type="button" class="btn btn-secondary" id="btn-undo" disabled title="Undo last half-turn (Ctrl+Z)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"/></svg>
+            Undo
+          </button>
+          <button type="button" class="btn btn-secondary" id="btn-redo" disabled title="Redo (Ctrl+Y)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5v0A5.5 5.5 0 0 0 9.5 20H13"/></svg>
+            Redo
+          </button>
+          <button type="button" class="btn btn-outline-gold" id="btn-toggle-edit" title="Edit or set up any custom board state">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            <span id="edit-btn-label">Setup Custom Board</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Custom Board Editor Banner (Hidden unless in Edit Mode) -->
+    <section class="editor-banner hidden" id="editor-banner" aria-live="polite">
+      <div class="editor-banner-inner">
+        <div class="editor-info">
+          <span class="badge badge-gold">BOARD EDITOR ACTIVE</span>
+          <span>Click any intersection on the board to place or remove pieces, or use quick presets:</span>
+        </div>
+        <div class="editor-tools">
+          <div class="segmented-control" id="paint-brush-control">
+            <button type="button" class="seg-btn active" data-brush="cycle">Cycle (W → B → Empty)</button>
+            <button type="button" class="seg-btn" data-brush="W"><span class="piece-dot white-dot"></span> Paint White</button>
+            <button type="button" class="seg-btn" data-brush="B"><span class="piece-dot black-dot"></span> Paint Black</button>
+            <button type="button" class="seg-btn" data-brush="E">Erase</button>
+          </div>
+          <button type="button" class="btn btn-sm btn-secondary" id="btn-flip-middle" title="Invert the alternating Black/White pieces on the middle row">
+            Invert Middle Row
+          </button>
+          <button type="button" class="btn btn-sm btn-secondary" id="btn-swap-all-colors" title="Swap all White and Black pieces on the board">
+            Swap All W/B
+          </button>
+          <button type="button" class="btn btn-sm btn-secondary" id="btn-clear-board" title="Remove all pieces from the board">
+            Clear All
+          </button>
+          <div class="editor-turn-pick">
+            <label for="editor-next-turn">Next Turn:</label>
+            <select id="editor-next-turn" class="select-input select-sm">
+              <option value="player">My Turn (Solver Plays)</option>
+              <option value="ai">AC AI's Turn (Input AI Move)</option>
+            </select>
+          </div>
+          <button type="button" class="btn btn-sm btn-primary" id="btn-finish-edit">
+            Done &amp; Resume
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main Workspace: Board on Left, Tactical Assistant on Right -->
+    <main class="main-grid">
+      <!-- Left Column: Interactive Board & Status Bar -->
+      <section class="board-section">
+        <!-- Match Score & Turn Status Banner -->
+        <div class="status-hud">
+          <div class="score-card ai-score-card" id="hud-ai-card">
+            <div class="score-piece-indicator" id="hud-ai-piece"></div>
+            <div class="score-meta">
+              <span class="score-title">AC TAVERN AI (TOP)</span>
+              <span class="score-subtitle" id="hud-ai-color-name">Black Pieces</span>
+            </div>
+            <div class="score-count" id="hud-ai-count">22</div>
+          </div>
+
+          <div class="turn-banner" id="turn-banner">
+            <div class="turn-phase-pill" id="turn-phase-pill">YOUR TURN</div>
+            <div class="turn-instruction" id="turn-instruction">
+              Solver is calculating your best move...
+            </div>
+          </div>
+
+          <div class="score-card player-score-card" id="hud-player-card">
+            <div class="score-count" id="hud-player-count">22</div>
+            <div class="score-meta align-right">
+              <span class="score-title">YOU / EDWARD (BOTTOM)</span>
+              <span class="score-subtitle" id="hud-player-color-name">White Pieces</span>
+            </div>
+            <div class="score-piece-indicator" id="hud-player-piece"></div>
+          </div>
+        </div>
+
+        <!-- Interactive SVG Fanorona Board -->
+        <div class="board-frame">
+          <div class="board-side-label top-side-label">
+            <span>▲ AC TAVERN AI SIDE (Rows 1–2) ▲</span>
+            <span class="coord-hint">Columns A–I • Rows 1–5</span>
+          </div>
+
+          <div class="board-svg-wrapper" id="board-wrapper">
+            <svg id="fanorona-board" viewBox="0 0 960 560" aria-label="Fanorona 9 by 5 game board">
+              <defs>
+                <!-- Subtle wood/parchment lighting and piece drop shadows -->
+                <filter id="piece-shadow" x="-25%" y="-25%" width="150%" height="150%">
+                  <feDropShadow dx="0" dy="4" stdDeviation="3.5" flood-color="#000000" flood-opacity="0.65"/>
+                </filter>
+                <filter id="glow-gold" x="-40%" y="-40%" width="180%" height="180%">
+                  <feGaussianBlur stdDeviation="5" result="blur"/>
+                  <feMerge>
+                    <feMergeNode in="blur"/>
+                    <feMergeNode in="SourceGraphic"/>
+                  </feMerge>
+                </filter>
+                <radialGradient id="white-piece-grad" cx="35%" cy="30%" r="65%">
+                  <stop offset="0%" stop-color="#fffdf7"/>
+                  <stop offset="55%" stop-color="#e9dec5"/>
+                  <stop offset="90%" stop-color="#bfb08e"/>
+                  <stop offset="100%" stop-color="#8d7d5b"/>
+                </radialGradient>
+                <radialGradient id="black-piece-grad" cx="35%" cy="30%" r="65%">
+                  <stop offset="0%" stop-color="#4e545c"/>
+                  <stop offset="45%" stop-color="#26292e"/>
+                  <stop offset="88%" stop-color="#121417"/>
+                  <stop offset="100%" stop-color="#070809"/>
+                </radialGradient>
+                <marker id="arrow-gold" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#f5b942"/>
+                </marker>
+                <marker id="arrow-cyan" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                  <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#38bdf8"/>
+                </marker>
+              </defs>
+
+              <!-- Background Board Surface -->
+              <rect x="16" y="16" width="928" height="528" rx="14" class="board-surface"/>
+              <rect x="28" y="28" width="904" height="504" rx="10" class="board-inner-border"/>
+
+              <!-- Layer 1: Grid Lines (Orthogonal & Strong Diagonal Lines) -->
+              <g id="board-lines-layer"></g>
+
+              <!-- Layer 2: Coordinate Labels -->
+              <g id="board-coords-layer"></g>
+
+              <!-- Layer 3: Solver / Move Path Arrows & Capture Highlights -->
+              <g id="board-paths-layer"></g>
+
+              <!-- Layer 4: Pieces & Interactive Intersection Nodes -->
+              <g id="board-nodes-layer"></g>
+
+              <!-- Layer 5: Floating Action Overlays (Approach vs Withdrawal choice, etc.) -->
+              <g id="board-overlay-layer"></g>
+            </svg>
+          </div>
+
+          <div class="board-side-label bottom-side-label">
+            <span>▼ YOUR SIDE — EDWARD KENWAY (Rows 4–5) ▼</span>
+            <span id="mandatory-capture-indicator" class="capture-rule-pill">Mandatory Capture Active</span>
+          </div>
+        </div>
+
+        <!-- Contextual Interactive Action Bar (Directly below the board for fast clicks) -->
+        <div class="board-action-bar" id="board-action-bar">
+          <!-- Populated dynamically based on current turn state -->
+        </div>
+      </section>
+
+      <!-- Right Column: Tactical Assistant, Step-by-Step Guide & AI Move Picker -->
+      <aside class="assistant-sidebar">
+        <!-- Card 1: Primary Turn Action Panel -->
+        <div class="panel-card primary-panel" id="primary-assistant-card">
+          <div class="panel-header">
+            <div class="panel-title-row">
+              <h2 id="assistant-panel-title">SOLVER RECOMMENDATION</h2>
+              <span class="eval-badge" id="solver-eval-badge" title="Position evaluation score (+ favors you)">Eval: 0.0</span>
+            </div>
+            <p class="panel-subtitle" id="assistant-panel-subtitle">
+              Execute these exact steps in Assassin's Creed, then click Apply.
+            </p>
+          </div>
+
+          <!-- Dynamic Content Area: Shows Solver Move on Player Turn, or AI Move Input Helper on AI Turn -->
+          <div class="panel-body" id="assistant-panel-body">
+            <!-- Populated by JS -->
+          </div>
+        </div>
+
+        <!-- Card 2: Alternative Legal Moves / AI Move Explorer -->
+        <div class="panel-card secondary-panel">
+          <div class="panel-header compact-header">
+            <h3 id="move-list-title">ALL LEGAL TURNS</h3>
+            <span class="count-pill" id="legal-moves-count">0</span>
+          </div>
+          <p class="panel-helper-text" id="move-list-helper">
+            Click any turn below to preview its path on the board or apply it directly.
+          </p>
+          <div class="moves-scroll-list" id="legal-moves-list">
+            <!-- Populated by JS -->
+          </div>
+        </div>
+
+        <!-- Card 3: Match Move History & Quick FEN/State -->
+        <div class="panel-card history-panel">
+          <div class="panel-header compact-header">
+            <h3>BATTLE LOG</h3>
+            <div class="history-controls">
+              <button type="button" class="btn-link" id="btn-switch-turn-now" title="Force switch whose turn it is right now">
+                Switch Active Turn
+              </button>
+            </div>
+          </div>
+          <div class="history-list" id="move-history-list">
+            <div class="empty-history">No moves recorded yet.</div>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

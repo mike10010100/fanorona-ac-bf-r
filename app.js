@@ -176,12 +176,13 @@ function generateAllLegalTurns(board, color) {
       if (visitedMask.has(to)) continue; // Cannot revisit any square visited in this turn
 
       const { approach, withdraw } = getStepCaptures(curBoard, curSq, to, dir, color);
+      const isAmbiguous = approach.length > 0 && withdraw.length > 0;
       if (approach.length > 0) {
         anyContinuationFound = true;
         const nextBoard = applySingleStepToBoard(curBoard, curSq, to, approach);
         const nextVisited = new Set(visitedMask);
         nextVisited.add(to);
-        const stepObj = { from: curSq, to, dir, type: 'approach', captured: approach };
+        const stepObj = { from: curSq, to, dir, type: 'approach', captured: approach, ambiguous: isAmbiguous };
         dfs(
           nextBoard,
           to,
@@ -197,7 +198,7 @@ function generateAllLegalTurns(board, color) {
         const nextBoard = applySingleStepToBoard(curBoard, curSq, to, withdraw);
         const nextVisited = new Set(visitedMask);
         nextVisited.add(to);
-        const stepObj = { from: curSq, to, dir, type: 'withdraw', captured: withdraw };
+        const stepObj = { from: curSq, to, dir, type: 'withdraw', captured: withdraw, ambiguous: isAmbiguous };
         dfs(
           nextBoard,
           to,
@@ -806,10 +807,54 @@ function saveSnapshotForUndo() {
   state.history.push({
     board: state.board.slice(),
     activeTurnOwner: state.activeTurnOwner,
-    moveLog: state.moveLog.map(m => ({ ...m }))
+    moveLog: state.moveLog.map(m => ({ ...m, steps: m.steps ? m.steps.slice() : [] }))
   });
   state.redoStack = [];
   updateUndoRedoButtons();
+}
+
+const STORAGE_KEY = 'fanorona_ac4_state_v1';
+
+function persistStateToStorage() {
+  try {
+    const payload = {
+      playerColor: state.playerColor,
+      firstMover: state.firstMover,
+      middleRowInverted: state.middleRowInverted,
+      board: state.board,
+      activeTurnOwner: state.activeTurnOwner,
+      moveLog: state.moveLog
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  } catch (_) {
+    // Ignore storage quota / privacy errors
+  }
+}
+
+function loadStateFromStorage() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const data = JSON.parse(raw);
+    if (!Array.isArray(data.board) || data.board.length !== NUM_SQUARES) return false;
+    state.playerColor = data.playerColor === BLACK ? BLACK : WHITE;
+    state.firstMover = data.firstMover === 'ai' ? 'ai' : 'player';
+    state.middleRowInverted = Boolean(data.middleRowInverted);
+    state.board = data.board.slice();
+    state.activeTurnOwner = data.activeTurnOwner === 'ai' ? 'ai' : 'player';
+    state.moveLog = Array.isArray(data.moveLog) ? data.moveLog : [];
+
+    // Sync top bar segmented controls with restored state
+    document.querySelectorAll('#player-color-control .seg-btn').forEach(btn => {
+      btn.classList.toggle('active', (btn.dataset.value === 'W' ? WHITE : BLACK) === state.playerColor);
+    });
+    document.querySelectorAll('#first-turn-control .seg-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.value === state.firstMover);
+    });
+    return true;
+  } catch (_) {
+    return false;
+  }
 }
 
 function clearInteractiveSelection() {
@@ -822,6 +867,7 @@ function clearInteractiveSelection() {
   state.selectedSq = null;
   state.pendingAmbiguousStep = null;
   state.previewedTurn = null;
+  state.filterStartSq = null;
 }
 
 function startNewGame() {
@@ -831,6 +877,7 @@ function startNewGame() {
   state.history = [];
   state.redoStack = [];
   state.moveLog = [];
+  persistStateToStorage();
   updateUndoRedoButtons();
   recomputeAndRender();
 }
@@ -847,13 +894,14 @@ function undoMove() {
   state.redoStack.push({
     board: state.board.slice(),
     activeTurnOwner: state.activeTurnOwner,
-    moveLog: state.moveLog.map(m => ({ ...m }))
+    moveLog: state.moveLog.map(m => ({ ...m, steps: m.steps ? m.steps.slice() : [] }))
   });
   const prev = state.history.pop();
   state.board = prev.board.slice();
   state.activeTurnOwner = prev.activeTurnOwner;
-  state.moveLog = prev.moveLog.map(m => ({ ...m }));
+  state.moveLog = prev.moveLog.map(m => ({ ...m, steps: m.steps ? m.steps.slice() : [] }));
   clearInteractiveSelection();
+  persistStateToStorage();
   updateUndoRedoButtons();
   recomputeAndRender();
 }
@@ -863,13 +911,14 @@ function redoMove() {
   state.history.push({
     board: state.board.slice(),
     activeTurnOwner: state.activeTurnOwner,
-    moveLog: state.moveLog.map(m => ({ ...m }))
+    moveLog: state.moveLog.map(m => ({ ...m, steps: m.steps ? m.steps.slice() : [] }))
   });
   const next = state.redoStack.pop();
   state.board = next.board.slice();
   state.activeTurnOwner = next.activeTurnOwner;
-  state.moveLog = next.moveLog.map(m => ({ ...m }));
+  state.moveLog = next.moveLog.map(m => ({ ...m, steps: m.steps ? m.steps.slice() : [] }));
   clearInteractiveSelection();
+  persistStateToStorage();
   updateUndoRedoButtons();
   recomputeAndRender();
 }
@@ -893,10 +942,12 @@ function commitFullTurn(turn) {
   state.moveLog.unshift({
     who,
     notation,
-    capturedCount: turn.totalCaptured.length
+    capturedCount: turn.totalCaptured.length,
+    steps: turn.steps.map(s => ({ from: s.from, to: s.to }))
   });
   state.activeTurnOwner = who === 'player' ? 'ai' : 'player';
   clearInteractiveSelection();
+  persistStateToStorage();
   updateUndoRedoButtons();
   recomputeAndRender();
 }
@@ -911,7 +962,7 @@ function finishInteractiveChain() {
   state.history.push({
     board: state.chainBoardBeforeTurn.slice(),
     activeTurnOwner: who,
-    moveLog: state.moveLog.map(m => ({ ...m }))
+    moveLog: state.moveLog.map(m => ({ ...m, steps: m.steps ? m.steps.slice() : [] }))
   });
   state.redoStack = [];
 
@@ -926,10 +977,12 @@ function finishInteractiveChain() {
   state.moveLog.unshift({
     who,
     notation: formatTurnNotation(turnObj),
-    capturedCount: totalCaptured.length
+    capturedCount: totalCaptured.length,
+    steps: state.chainSteps.map(s => ({ from: s.from, to: s.to }))
   });
   state.activeTurnOwner = who === 'player' ? 'ai' : 'player';
   clearInteractiveSelection();
+  persistStateToStorage();
   updateUndoRedoButtons();
   recomputeAndRender();
 }
@@ -1297,6 +1350,78 @@ function renderBoardDynamicLayers() {
 
   const activeColor = getActiveColor();
 
+  // 0. Draw subtle Last Move trail from the most recent completed turn (so user always has context)
+  if (!state.editMode && !state.chainInProgress && state.moveLog.length > 0) {
+    const lastTurn = state.moveLog[0];
+    if (Array.isArray(lastTurn.steps) && lastTurn.steps.length > 0) {
+      const originSq = lastTurn.steps[0].from;
+      pathsLayer.appendChild(
+        createSvgEl('circle', {
+          cx: sqX(originSq),
+          cy: sqY(originSq),
+          r: 18,
+          class: 'last-move-origin-ring'
+        })
+      );
+      for (const st of lastTurn.steps) {
+        pathsLayer.appendChild(
+          createSvgEl('line', {
+            x1: sqX(st.from),
+            y1: sqY(st.from),
+            x2: sqX(st.to),
+            y2: sqY(st.to),
+            class: 'last-move-trail-line'
+          })
+        );
+      }
+    }
+  }
+
+  // 0b. If a manual/AI multi-capture chain is currently in progress, draw the steps taken so far!
+  if (!state.editMode && state.chainInProgress && state.chainSteps.length > 0) {
+    state.chainSteps.forEach((step, idxStep) => {
+      const x1 = sqX(step.from);
+      const y1 = sqY(step.from);
+      const x2 = sqX(step.to);
+      const y2 = sqY(step.to);
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const len = Math.hypot(dx, dy) || 1;
+      const tx = x2 - (dx / len) * 18;
+      const ty = y2 - (dy / len) * 18;
+
+      pathsLayer.appendChild(
+        createSvgEl('line', {
+          x1,
+          y1,
+          x2: tx,
+          y2: ty,
+          class: 'chain-step-line',
+          'marker-end': 'url(#arrow-cyan)'
+        })
+      );
+      const mx = (x1 + x2) / 2;
+      const my = (y1 + y2) / 2;
+      pathsLayer.appendChild(
+        createSvgEl('circle', {
+          cx: mx,
+          cy: my,
+          r: 10,
+          fill: '#38bdf8',
+          stroke: '#081018',
+          'stroke-width': 2
+        })
+      );
+      const badgeTxt = createSvgEl('text', {
+        x: mx,
+        y: my,
+        class: 'solver-step-text'
+      });
+      badgeTxt.textContent = String(idxStep + 1);
+      pathsLayer.appendChild(badgeTxt);
+    });
+  }
+
   // Determine which turn path to visualize on the board:
   // 1. If a turn is hovered/previewed in the sidebar, show `state.previewedTurn`
   // 2. Otherwise, if it's Player's turn (and not in edit mode or manual chain), show `state.solverResult.bestTurn`
@@ -1573,6 +1698,7 @@ function handleSquareClick(sq) {
     } else {
       state.board[sq] = EMPTY;
     }
+    persistStateToStorage();
     renderAll();
     return;
   }
@@ -1601,13 +1727,16 @@ function handleSquareClick(sq) {
     return;
   }
 
-  // Otherwise, if clicking a piece of the active color, select it
+  // Otherwise, if clicking a piece of the active color, select it and filter the legal turns list!
   if (state.board[sq] === activeColor) {
-    state.selectedSq = state.selectedSq === sq ? null : sq;
+    const nextSel = state.selectedSq === sq ? null : sq;
+    state.selectedSq = nextSel;
+    state.filterStartSq = nextSel;
     state.previewedTurn = null;
     renderAll();
   } else {
     state.selectedSq = null;
+    state.filterStartSq = null;
     renderAll();
   }
 }
@@ -1726,7 +1855,7 @@ function renderBoardActionBar() {
   const statusDiv = document.createElement('div');
   statusDiv.className = 'action-bar-status';
   if (state.selectedSq !== null) {
-    statusDiv.innerHTML = `<strong>AI Piece ${sqName(state.selectedSq)} Selected:</strong> Now click the highlighted blue intersection where the AI moved it.`;
+    statusDiv.innerHTML = `<strong>AI Piece ${sqName(state.selectedSq)} Selected:</strong> Click its blue destination on the board, or click Apply on a filtered move on the right.`;
   } else {
     statusDiv.innerHTML = `<strong>Waiting for AC AI Move:</strong> Click the AI piece that moved on the board above, or pick the AI's move from the right-hand list.`;
   }
@@ -1739,6 +1868,7 @@ function renderBoardActionBar() {
     btnDeselect.textContent = 'Clear Selection';
     btnDeselect.addEventListener('click', () => {
       state.selectedSq = null;
+      state.filterStartSq = null;
       renderAll();
     });
     btnsDiv.appendChild(btnDeselect);
@@ -1758,6 +1888,7 @@ function renderAssistantSidebar() {
   const listTitleEl = document.getElementById('move-list-title');
   const listHelperEl = document.getElementById('move-list-helper');
   const listCountEl = document.getElementById('legal-moves-count');
+  const filterPillsEl = document.getElementById('move-filter-pills');
   const listContainer = document.getElementById('legal-moves-list');
 
   if (state.editMode) {
@@ -1773,6 +1904,7 @@ function renderAssistantSidebar() {
         </p>
       </div>
     `;
+    if (filterPillsEl) filterPillsEl.innerHTML = '';
     listContainer.innerHTML = '';
     listCountEl.textContent = '0';
     return;
@@ -1789,17 +1921,16 @@ function renderAssistantSidebar() {
     ? `<span class="spinner-ring" style="display:inline-block;vertical-align:middle;margin-right:5px;"></span>D${state.solverResult?.depthReached || 1} • ${displayEval}`
     : `D${state.solverResult?.depthReached || 1} • Eval: ${displayEval}`;
 
-  const rankedTurns = state.solverResult?.rankedTurns || [];
-  listCountEl.textContent = String(rankedTurns.length);
+  const allRankedTurns = state.solverResult?.rankedTurns || [];
 
   if (state.activeTurnOwner === 'player') {
     titleEl.textContent = 'SOLVER RECOMMENDATION (YOUR MOVE)';
     subEl.textContent = state.solverThinking
-      ? `Deepening search in background (currently Depth ${state.solverResult?.depthReached || 1})... UI remains fully interactive:`
+      ? `Deepening search in background (currently Depth ${state.solverResult?.depthReached || 1})... UI remains interactive:`
       : `Searched ${state.solverResult?.depthReached || 1} plies ahead. Follow these steps in-game:`;
     listTitleEl.textContent = 'ALL YOUR LEGAL TURNS (RANKED)';
     listHelperEl.textContent =
-      'Hover or click any alternative turn to preview its arrows, or click Apply.';
+      'Hover or click any alternative turn to preview its arrows, or filter by starting piece:';
 
     const activeTurnToShow = state.previewedTurn || state.solverResult?.bestTurn;
 
@@ -1812,11 +1943,17 @@ function renderAssistantSidebar() {
             s.captured.length > 0
               ? `${s.type === 'approach' ? 'Approach' : 'Withdrawal'} capture: removes ${s.captured.map(sqName).join(', ')}`
               : 'Paika (non-capturing move)';
+          const ambigBadge = s.ambiguous
+            ? `<span class="ambiguous-choice-pill" title="Both Approach & Withdrawal are possible on this step — make sure you pick ${s.type === 'approach' ? 'APPROACH' : 'WITHDRAWAL'} in Assassin's Creed!">⚠️ Choose ${s.type.toUpperCase()}</span>`
+            : '';
           return `
             <li class="step-item">
               <span class="step-num">${i + 1}</span>
               <div class="step-details">
-                <span class="step-coord">Move ${sqName(s.from)} → ${sqName(s.to)}</span>
+                <div class="step-coord-row">
+                  <span class="step-coord">Move ${sqName(s.from)} → ${sqName(s.to)}</span>
+                  ${ambigBadge}
+                </div>
                 <span class="step-meta">${capText}</span>
               </div>
             </li>
@@ -1838,8 +1975,8 @@ function renderAssistantSidebar() {
           </div>
           <ul class="step-checklist">${stepsHtml}</ul>
           ${earlyStopHtml}
-          <button type="button" class="btn btn-primary" id="btn-apply-solver-main" style="width:100%;margin-top:4px;">
-            ✓ I Played This Move — Switch to AI Turn
+          <button type="button" class="btn btn-primary" id="btn-apply-solver-main" style="width:100%;margin-top:2px;">
+            ✓ I Played This Move — Switch to AI Turn (Enter)
           </button>
         </div>
       `;
@@ -1854,35 +1991,108 @@ function renderAssistantSidebar() {
     subEl.textContent = 'Record the move the tavern AI just made so the solver stays in sync:';
     listTitleEl.textContent = 'ALL LEGAL AI TURNS (QUICK SELECT)';
     listHelperEl.textContent =
-      'Instead of clicking the board step-by-step, you can also click the exact AI turn below:';
+      'Filter by the AI piece that moved, or click Apply on the exact AI turn below:';
 
-    bodyEl.innerHTML = `
-      <div class="solver-steps-container">
-        <div class="step-item">
-          <span class="step-num" style="background:var(--cyan-primary);">1</span>
-          <div class="step-details">
-            <span class="step-coord">Click the AI Piece on the Board</span>
-            <span class="step-meta">All AI pieces that can legally move are ringed in blue.</span>
+    if (state.chainInProgress) {
+      const stepsSoFar = [
+        sqName(state.chainSteps[0].from),
+        ...state.chainSteps.map(s => sqName(s.to))
+      ].join(' → ');
+      bodyEl.innerHTML = `
+        <div class="solver-steps-container">
+          <div class="solver-summary-box" style="border-color:rgba(56,189,248,0.4);">
+            <span class="solver-summary-main" style="color:var(--cyan-primary);">Chain so far: ${stepsSoFar}</span>
+          </div>
+          <p style="font-size:0.8rem;color:var(--text-muted);">
+            Click the next blue destination square on the board if the AI continued capturing, or click below if the AI ended its turn:
+          </p>
+          <button type="button" class="btn btn-primary" id="btn-finish-ai-chain-sidebar" style="width:100%;">
+            ✓ End AI Turn Here (AI Stopped Capturing)
+          </button>
+        </div>
+      `;
+      document
+        .getElementById('btn-finish-ai-chain-sidebar')
+        ?.addEventListener('click', () => finishInteractiveChain());
+    } else {
+      bodyEl.innerHTML = `
+        <div class="solver-steps-container">
+          <div class="step-item">
+            <span class="step-num" style="background:var(--cyan-primary);">1</span>
+            <div class="step-details">
+              <span class="step-coord">Click the AI Piece (or Filter Pill Below)</span>
+              <span class="step-meta">All AI pieces that can legally move are ringed in blue on the board.</span>
+            </div>
+          </div>
+          <div class="step-item">
+            <span class="step-num" style="background:var(--cyan-primary);">2</span>
+            <div class="step-details">
+              <span class="step-coord">Click Destination Square (or 1-Click Apply)</span>
+              <span class="step-meta">Clicking an AI piece also filters the turn list below for instant 1-click selection!</span>
+            </div>
           </div>
         </div>
-        <div class="step-item">
-          <span class="step-num" style="background:var(--cyan-primary);">2</span>
-          <div class="step-details">
-            <span class="step-coord">Click Each Destination Square</span>
-            <span class="step-meta">Follow the AI's capture chain. When it finishes, the solver will immediately calculate your counter-attack!</span>
-          </div>
-        </div>
-      </div>
-    `;
+      `;
+    }
   }
 
-  // Populate the scrollable list of all legal turns (for both Player and AI turns)
+  // Build unique starting square filter pills
+  const uniqueStarts = [];
+  const seenStart = new Set();
+  for (const item of allRankedTurns) {
+    const st = item.turn.steps[0]?.from;
+    if (st !== undefined && !seenStart.has(st)) {
+      seenStart.add(st);
+      uniqueStarts.push(st);
+    }
+  }
+
+  if (filterPillsEl) {
+    filterPillsEl.innerHTML = '';
+    if (uniqueStarts.length > 1) {
+      const allPill = document.createElement('button');
+      allPill.type = 'button';
+      allPill.className = `filter-pill ${state.filterStartSq === null ? 'active' : ''}`;
+      allPill.textContent = `All (${allRankedTurns.length})`;
+      allPill.addEventListener('click', () => {
+        state.filterStartSq = null;
+        state.selectedSq = null;
+        renderAll();
+      });
+      filterPillsEl.appendChild(allPill);
+
+      uniqueStarts.forEach(sq => {
+        const countForSq = allRankedTurns.filter(x => x.turn.steps[0]?.from === sq).length;
+        const pill = document.createElement('button');
+        pill.type = 'button';
+        pill.className = `filter-pill ${state.filterStartSq === sq ? 'active' : ''}`;
+        pill.textContent = `${sqName(sq)} (${countForSq})`;
+        pill.addEventListener('click', () => {
+          const next = state.filterStartSq === sq ? null : sq;
+          state.filterStartSq = next;
+          state.selectedSq = next;
+          renderAll();
+        });
+        filterPillsEl.appendChild(pill);
+      });
+    }
+  }
+
+  const filteredTurns =
+    state.filterStartSq !== null
+      ? allRankedTurns.filter(x => x.turn.steps[0]?.from === state.filterStartSq)
+      : allRankedTurns;
+
+  listCountEl.textContent = String(filteredTurns.length);
+
+  // Populate the scrollable list of legal turns
   listContainer.innerHTML = '';
-  rankedTurns.forEach((entry, idxRank) => {
-    const { turn, score } = entry;
-    const row = document.createElement('div');
-    const isBest = idxRank === 0 && state.activeTurnOwner === 'player';
+  filteredTurns.forEach(entry => {
+    const { turn } = entry;
+    const isBest =
+      state.activeTurnOwner === 'player' && turn === state.solverResult?.bestTurn;
     const isPreviewed = state.previewedTurn === turn;
+    const row = document.createElement('div');
     row.className = `move-row-item ${isBest ? 'best-move' : ''} ${isPreviewed ? 'previewed' : ''}`;
 
     const capNames =
@@ -1892,7 +2102,7 @@ function renderAssistantSidebar() {
 
     row.innerHTML = `
       <div class="move-row-info">
-        <span class="move-row-notation">${idxRank === 0 && state.activeTurnOwner === 'player' ? '★ ' : ''}${formatTurnNotation(turn)}</span>
+        <span class="move-row-notation">${isBest ? '★ ' : ''}${formatTurnNotation(turn)}</span>
         <span class="move-row-sub">${capNames}</span>
       </div>
       <div class="move-row-actions">
@@ -1992,6 +2202,7 @@ function initEvents() {
     saveSnapshotForUndo();
     clearInteractiveSelection();
     state.activeTurnOwner = state.activeTurnOwner === 'player' ? 'ai' : 'player';
+    persistStateToStorage();
     recomputeAndRender();
   });
 
@@ -2011,6 +2222,7 @@ function initEvents() {
       nextTurnSelect.value = state.activeTurnOwner;
     } else {
       state.activeTurnOwner = nextTurnSelect.value;
+      persistStateToStorage();
     }
     recomputeAndRender();
   }
@@ -2038,6 +2250,7 @@ function initEvents() {
       if (state.board[sq] === WHITE) state.board[sq] = BLACK;
       else if (state.board[sq] === BLACK) state.board[sq] = WHITE;
     }
+    persistStateToStorage();
     renderAll();
   });
 
@@ -2047,17 +2260,24 @@ function initEvents() {
       if (state.board[sq] === WHITE) state.board[sq] = BLACK;
       else if (state.board[sq] === BLACK) state.board[sq] = WHITE;
     }
+    persistStateToStorage();
     renderAll();
   });
 
   document.getElementById('btn-clear-board')?.addEventListener('click', () => {
     saveSnapshotForUndo();
     state.board.fill(EMPTY);
+    persistStateToStorage();
     renderAll();
   });
 
-  // Keyboard shortcuts for Undo (Ctrl/Cmd+Z) and Redo (Ctrl/Cmd+Y)
+  // Keyboard shortcuts:
+  // - Ctrl/Cmd+Z: Undo
+  // - Ctrl/Cmd+Y or Ctrl/Cmd+Shift+Z: Redo
+  // - Enter / Space (when on Player Turn): Apply recommended move
+  // - Escape: Clear selection / cancel preview
   window.addEventListener('keydown', e => {
+    if (e.target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
       e.preventDefault();
       if (e.shiftKey) redoMove();
@@ -2065,6 +2285,23 @@ function initEvents() {
     } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
       e.preventDefault();
       redoMove();
+    } else if (e.key === 'Escape') {
+      state.selectedSq = null;
+      state.filterStartSq = null;
+      state.previewedTurn = null;
+      state.pendingAmbiguousStep = null;
+      renderAll();
+    } else if (
+      e.key === 'Enter' &&
+      !state.editMode &&
+      !state.chainInProgress &&
+      state.activeTurnOwner === 'player'
+    ) {
+      const activeTurnToApply = state.previewedTurn || state.solverResult?.bestTurn;
+      if (activeTurnToApply) {
+        e.preventDefault();
+        commitFullTurn(activeTurnToApply);
+      }
     }
   });
 }
@@ -2072,5 +2309,10 @@ function initEvents() {
 window.addEventListener('DOMContentLoaded', () => {
   renderStaticBoardGrid();
   initEvents();
-  startNewGame();
+  if (loadStateFromStorage()) {
+    updateUndoRedoButtons();
+    recomputeAndRender();
+  } else {
+    startNewGame();
+  }
 });

@@ -1,5 +1,6 @@
 .git
 .wrangler
+.gitignore
 README.md
 CNAME
 .assetsignore

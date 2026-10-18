@@ -54,6 +54,18 @@
         </div>
 
         <div class="control-group">
+          <span class="control-label" id="lbl-ui-mode">Companion View</span>
+          <div class="segmented-control" id="ui-mode-control" role="group" aria-labelledby="lbl-ui-mode">
+            <button type="button" class="seg-btn active" data-mode="guided" id="btn-mode-guided" title="Beginner-friendly view with plain-English TV directions and step-by-step hop highlighter">
+              🧭 Guided
+            </button>
+            <button type="button" class="seg-btn" data-mode="pro" id="btn-mode-pro" title="Compact tactical view with engine depth & evaluation scores">
+              📊 Pro
+            </button>
+          </div>
+        </div>
+
+        <div class="control-group">
           <label class="control-label" for="solver-depth">Solver Depth</label>
           <select id="solver-depth" class="select-input">
             <option value="900">Fast (0.9s)</option>
@@ -63,6 +75,10 @@
         </div>
 
         <div class="control-group actions-group">
+          <button type="button" class="btn btn-outline-gold" id="btn-open-wizard" title="Open interactive setup wizard & beginner guide">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+            How to Use
+          </button>
           <button type="button" class="btn btn-secondary" id="btn-new-game" title="Reset to starting board">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
             New Match
@@ -75,9 +91,9 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5v0A5.5 5.5 0 0 0 9.5 20H13"/></svg>
             Redo
           </button>
-          <button type="button" class="btn btn-outline-gold" id="btn-toggle-edit" title="Edit or set up any custom board state">
+          <button type="button" class="btn btn-secondary" id="btn-toggle-edit" title="Edit or set up any custom board state">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
-            <span id="edit-btn-label">Setup Custom Board</span>
+            <span id="edit-btn-label">Custom Board</span>
           </button>
         </div>
       </div>
@@ -277,6 +293,163 @@
         </div>
       </aside>
     </main>
+  </div>
+
+  <!-- Interactive 3-Step Match Setup & Beginner Guide Modal -->
+  <div class="wizard-backdrop hidden" id="wizard-modal" role="dialog" aria-modal="true" aria-labelledby="wizard-title">
+    <div class="wizard-dialog">
+      <div class="wizard-header">
+        <div>
+          <span class="badge badge-gold">COMPANION QUICK-START GUIDE</span>
+          <h2 id="wizard-title">Win Fanorona in Assassin's Creed IV — Zero Rules Needed</h2>
+        </div>
+        <button type="button" class="wizard-close-btn" id="btn-close-wizard" aria-label="Close guide">✕</button>
+      </div>
+
+      <!-- Step Indicator Tabs -->
+      <div class="wizard-steps-nav" role="tablist">
+        <button type="button" class="wizard-step-tab active" data-step="1" id="wiz-tab-1">
+          <span class="wiz-tab-num">1</span> Match Your TV Screen
+        </button>
+        <button type="button" class="wizard-step-tab" data-step="2" id="wiz-tab-2">
+          <span class="wiz-tab-num">2</span> How to Play Your Turn
+        </button>
+        <button type="button" class="wizard-step-tab" data-step="3" id="wiz-tab-3">
+          <span class="wiz-tab-num">3</span> Inputting the AI's Move
+        </button>
+      </div>
+
+      <!-- Step 1: Interactive Match Setup -->
+      <div class="wizard-step-pane" id="wiz-pane-1">
+        <p class="wizard-lead">
+          Look at the Fanorona board on your TV/monitor in <strong>Assassin's Creed IV</strong> and pick the two settings that match your screen:
+        </p>
+
+        <div class="wizard-question-block">
+          <span class="wizard-q-label">1. What color are YOUR pieces at the bottom of the screen (closest to you)?</span>
+          <div class="wizard-choice-grid">
+            <button type="button" class="wizard-choice-card active" data-wiz-color="W" id="wiz-color-white">
+              <span class="piece-dot white-dot wiz-lg-dot"></span>
+              <div>
+                <strong>White (Light Wood)</strong>
+                <small>Most common in AC4 Homestead / Tavern matches</small>
+              </div>
+            </button>
+            <button type="button" class="wizard-choice-card" data-wiz-color="B" id="wiz-color-black">
+              <span class="piece-dot black-dot wiz-lg-dot"></span>
+              <div>
+                <strong>Black (Dark Wood)</strong>
+                <small>Use if your bottom 2 rows are dark pieces</small>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <div class="wizard-question-block">
+          <span class="wizard-q-label">2. Who is moving first in the game right now?</span>
+          <div class="wizard-choice-grid">
+            <button type="button" class="wizard-choice-card active" data-wiz-first="player" id="wiz-first-player">
+              <span class="wiz-card-icon">🗡️</span>
+              <div>
+                <strong>I Move First (My Turn)</strong>
+                <small>The game is waiting for you to make the opening move</small>
+              </div>
+            </button>
+            <button type="button" class="wizard-choice-card" data-wiz-first="ai" id="wiz-first-ai">
+              <span class="wiz-card-icon">🏴‍☠️</span>
+              <div>
+                <strong>AC Tavern AI Moves First</strong>
+                <small>The opponent already moved (or is moving first)</small>
+              </div>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2: How to Play Your Turn -->
+      <div class="wizard-step-pane hidden" id="wiz-pane-2">
+        <p class="wizard-lead">
+          When it's <strong>YOUR TURN</strong>, you don't need to know Fanorona rules — just copy the gold instructions onto your TV:
+        </p>
+        <div class="wizard-guide-cards">
+          <div class="wizard-guide-item">
+            <span class="wiz-guide-badge gold">1</span>
+            <div>
+              <strong>Find the Pulsing Gold Piece on Your TV</strong>
+              <p>
+                Because AC4's wooden board has no <code>A–I</code> labels, <strong>🧭 Guided Mode</strong> tells you the exact spot in plain English relative to the center (e.g., <em>"2nd row from bottom, 1 right of center"</em>).
+              </p>
+            </div>
+          </div>
+          <div class="wizard-guide-item">
+            <span class="wiz-guide-badge gold">2</span>
+            <div>
+              <strong>Follow the Numbered Gold Arrows (1 → 2 → 3)</strong>
+              <p>
+                On multi-jump turns, use the <strong>Prev Hop / Next Hop</strong> buttons to highlight one jump at a time so you never lose your place.
+              </p>
+            </div>
+          </div>
+          <div class="wizard-guide-item">
+            <span class="wiz-guide-badge amber">!</span>
+            <div>
+              <strong>What if AC4 Pauses &amp; Asks Which Pieces to Capture?</strong>
+              <p>
+                Sometimes moving a piece can capture enemy pieces <em>both</em> in front of you and behind you. When that happens, we show a gold warning telling you which to pick in AC4:
+              </p>
+              <ul class="wizard-mini-list">
+                <li><strong>APPROACH (Towards):</strong> Pick the enemy pieces <strong>IN FRONT</strong> of where you landed.</li>
+                <li><strong>WITHDRAWAL (Away):</strong> Pick the enemy pieces <strong>BEHIND</strong> where you started.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 3: How to Input the AI's Turn -->
+      <div class="wizard-step-pane hidden" id="wiz-pane-3">
+        <p class="wizard-lead">
+          After you click <strong>"✓ I Played This Move"</strong>, watch what the Tavern AI does on your TV and record it in either of two ways:
+        </p>
+        <div class="wizard-guide-cards">
+          <div class="wizard-guide-item">
+            <span class="wiz-guide-badge cyan">A</span>
+            <div>
+              <strong>1-Click Quick List (Fastest for Multi-Jumps!)</strong>
+              <p>
+                Click the <strong>blue-ringed AI piece</strong> on our board that moved on your TV. That filters the right-hand list to only that piece's moves — then just click <strong>Apply</strong> on the path that matches!
+              </p>
+            </div>
+          </div>
+          <div class="wizard-guide-item">
+            <span class="wiz-guide-badge cyan">B</span>
+            <div>
+              <strong>Step-by-Step Board Clicking</strong>
+              <p>
+                Or click the AI piece on the board, then click each empty spot it jumped to one by one. If the AI stops jumping early, click <strong>"End AI Turn Here"</strong>.
+              </p>
+            </div>
+          </div>
+          <div class="wizard-guide-item">
+            <span class="wiz-guide-badge neutral">↺</span>
+            <div>
+              <strong>Made a Mistake or Joined a Game Mid-Match?</strong>
+              <p>
+                Click <strong>Undo</strong> anytime to step backward, or click <strong>Custom Board</strong> in the top bar to add/remove pieces on any square so our board matches your TV.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="wizard-footer">
+        <button type="button" class="btn btn-secondary" id="btn-wiz-prev" disabled>← Previous</button>
+        <div class="wizard-footer-right">
+          <button type="button" class="btn btn-secondary" id="btn-wiz-start-now">Skip &amp; Start Playing</button>
+          <button type="button" class="btn btn-primary" id="btn-wiz-next">Next: How to Play Your Turn →</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script src="app.js"></script>

@@ -406,6 +406,39 @@ function runSavedRegressions(ctx) {
     String(freshCtx.generateAllLegalTurns(freshCtx.state.board, freshCtx.getActiveColor()).length),
     'F6: Legal moves count badge must equal all legal turns after reload from localStorage'
   );
+
+  // Beginner UX & Guided Mode checks: TV Landmark translator, Guided vs Pro mode, Hop Stepper, Setup Wizard
+  assert.strictEqual(ctx.describeSquareForTV(idx(2, 4)), 'exact center spot', 'Center landmark E3 description');
+  assert.strictEqual(
+    ctx.describeSquareForTV(idx(3, 5)),
+    '2nd row from bottom, 1 right of center',
+    'F4 TV screen landmark description'
+  );
+  startNewGame();
+  state.solverThinking = false;
+  state.uiMode = 'guided';
+  ctx.renderAssistantSidebar();
+  const guidedBodyHtml = document.getElementById('assistant-panel-body').innerHTML;
+  const guidedBadgeHtml = document.getElementById('solver-eval-badge').innerHTML;
+  assert(guidedBodyHtml.includes('tv-locator-card'), 'Guided mode must render TV locator card');
+  assert(!guidedBadgeHtml.includes('Eval:'), 'Guided mode must hide raw engine Eval score');
+
+  state.uiMode = 'pro';
+  ctx.renderAssistantSidebar();
+  const proBodyHtml = document.getElementById('assistant-panel-body').innerHTML;
+  const proBadgeHtml = document.getElementById('solver-eval-badge').innerHTML;
+  assert(!proBodyHtml.includes('tv-locator-card'), 'Pro mode must omit TV locator card');
+  assert(proBadgeHtml.includes('Eval:'), 'Pro mode must display engine Eval score');
+  state.uiMode = 'guided';
+
+  // Wizard open -> step 1 -> step 2 -> step 3 -> start match & close
+  const wizardModal = document.getElementById('wizard-modal');
+  document.getElementById('btn-open-wizard').click();
+  assert(!wizardModal.classList.contains('hidden'), 'Wizard modal should open when #btn-open-wizard is clicked');
+  document.getElementById('btn-wiz-next').click(); // -> step 2
+  document.getElementById('btn-wiz-next').click(); // -> step 3
+  document.getElementById('btn-wiz-next').click(); // -> finish & start match
+  assert(wizardModal.classList.contains('hidden'), 'Wizard modal should close after completing step 3');
 }
 
 // 5. Seeded PRNG (mulberry32)

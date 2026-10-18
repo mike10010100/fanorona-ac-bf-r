@@ -61,6 +61,52 @@ function sqName(sq) {
   return `${COL_NAMES[colOf(sq)]}${ROW_NAMES[rowOf(sq)]}`;
 }
 
+const ROW_TV_DESC = [
+  'Top row',
+  '2nd row from top',
+  'Middle row',
+  '2nd row from bottom',
+  'Bottom row'
+];
+
+const COL_TV_DESC = [
+  'far-left edge',
+  '2nd from left',
+  '2 left of center',
+  '1 left of center',
+  'center column',
+  '1 right of center',
+  '2 right of center',
+  '2nd from right',
+  'far-right edge'
+];
+
+const DIR_TV_DESC = [
+  'straight UP ↑',
+  'straight DOWN ↓',
+  'LEFT ←',
+  'RIGHT →',
+  'diagonally UP-LEFT ↖',
+  'diagonally UP-RIGHT ↗',
+  'diagonally DOWN-LEFT ↙',
+  'diagonally DOWN-RIGHT ↘'
+];
+
+const DIR_ARROW_SHORT = ['↑', '↓', '←', '→', '↖', '↗', '↙', '↘'];
+
+function describeSquareForTV(sq) {
+  if (sq === 22) return 'exact center spot';
+  return `${ROW_TV_DESC[rowOf(sq)]}, ${COL_TV_DESC[colOf(sq)]}`;
+}
+
+function describeDirectionForTV(dir) {
+  return DIR_TV_DESC[dir] || '';
+}
+
+function directionArrowForTV(dir) {
+  return DIR_ARROW_SHORT[dir] || '→';
+}
+
 (function initTopology() {
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
@@ -500,6 +546,10 @@ const state = {
   solverThinking: false,
   solverJobId: 0,
   previewedTurn: null, // Turn object currently hovered/selected in the sidebar
+  activeHopIndex: null, // null = show all hops, 0..N-1 = focus specific hop in Guided Mode
+
+  // Companion UI Mode ('guided' = beginner-friendly plain English, 'pro' = compact engine stats)
+  uiMode: 'guided',
 
   // Custom Board Editor Mode
   editMode: false,
@@ -832,6 +882,7 @@ function persistStateToStorage() {
       playerColor: state.playerColor,
       firstMover: state.firstMover,
       middleRowInverted: state.middleRowInverted,
+      uiMode: state.uiMode,
       board: state.board,
       activeTurnOwner: state.activeTurnOwner,
       moveLog: state.moveLog
@@ -851,6 +902,7 @@ function loadStateFromStorage() {
     state.playerColor = data.playerColor === BLACK ? BLACK : WHITE;
     state.firstMover = data.firstMover === 'ai' ? 'ai' : 'player';
     state.middleRowInverted = Boolean(data.middleRowInverted);
+    state.uiMode = data.uiMode === 'pro' ? 'pro' : 'guided';
     state.board = data.board.slice();
     state.activeTurnOwner = data.activeTurnOwner === 'ai' ? 'ai' : 'player';
     state.moveLog = Array.isArray(data.moveLog) ? data.moveLog : [];
@@ -861,6 +913,9 @@ function loadStateFromStorage() {
     });
     document.querySelectorAll('#first-turn-control .seg-btn').forEach(btn => {
       btn.classList.toggle('active', btn.dataset.value === state.firstMover);
+    });
+    document.querySelectorAll('#ui-mode-control .seg-btn').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.mode === state.uiMode);
     });
     return true;
   } catch (_) {
@@ -878,6 +933,7 @@ function clearInteractiveSelection() {
   state.selectedSq = null;
   state.pendingAmbiguousStep = null;
   state.previewedTurn = null;
+  state.activeHopIndex = null;
   state.filterStartSq = null;
 }
 
@@ -1148,6 +1204,28 @@ function renderStaticBoardGrid() {
   linesLayer.innerHTML = '';
   coordsLayer.innerHTML = '';
 
+  // Draw subtle center crosshair landmarks (Column E & Row 3) to anchor TV orientation
+  const centerX = sqX(22);
+  const centerY = sqY(22);
+  linesLayer.appendChild(
+    createSvgEl('line', {
+      x1: centerX,
+      y1: 58,
+      x2: centerX,
+      y2: 502,
+      class: 'center-landmark-line'
+    })
+  );
+  linesLayer.appendChild(
+    createSvgEl('line', {
+      x1: 72,
+      y1: centerY,
+      x2: 888,
+      y2: centerY,
+      class: 'center-landmark-line'
+    })
+  );
+
   // Draw connections between intersections
   for (let sq = 0; sq < NUM_SQUARES; sq++) {
     for (const { to, dir } of NEIGHBORS[sq]) {
@@ -1166,6 +1244,16 @@ function renderStaticBoardGrid() {
     }
   }
 
+  // Subtle double-ring around the exact center intersection (E3, sq 22)
+  linesLayer.appendChild(
+    createSvgEl('circle', {
+      cx: centerX,
+      cy: centerY,
+      r: 12,
+      class: 'center-origin-landmark'
+    })
+  );
+
   // Draw small intersection nodes
   for (let sq = 0; sq < NUM_SQUARES; sq++) {
     linesLayer.appendChild(
@@ -1178,26 +1266,33 @@ function renderStaticBoardGrid() {
     );
   }
 
-  // Column labels A-I at top and bottom
+  // Column labels A-I at top and bottom (highlight E as Center)
   for (let c = 0; c < COLS; c++) {
     const x = BOARD_ORIGIN_X + c * CELL_SPACING_X;
-    const topLbl = createSvgEl('text', { x, y: 44, class: 'coord-label' });
-    topLbl.textContent = COL_NAMES[c];
+    const isMidCol = c === 4;
+    const lblClass = isMidCol ? 'coord-label coord-label-center' : 'coord-label';
+    const lblText = isMidCol ? 'E (MID)' : COL_NAMES[c];
+
+    const topLbl = createSvgEl('text', { x, y: 44, class: lblClass });
+    topLbl.textContent = lblText;
     coordsLayer.appendChild(topLbl);
 
-    const botLbl = createSvgEl('text', { x, y: 516, class: 'coord-label' });
-    botLbl.textContent = COL_NAMES[c];
+    const botLbl = createSvgEl('text', { x, y: 516, class: lblClass });
+    botLbl.textContent = lblText;
     coordsLayer.appendChild(botLbl);
   }
 
-  // Row labels 1-5 at left and right
+  // Row labels 1-5 at left and right (highlight 3 as Mid)
   for (let r = 0; r < ROWS; r++) {
     const y = BOARD_ORIGIN_Y + r * CELL_SPACING_Y;
-    const leftLbl = createSvgEl('text', { x: 52, y, class: 'coord-label' });
+    const isMidRow = r === 2;
+    const lblClass = isMidRow ? 'coord-label coord-label-center' : 'coord-label';
+
+    const leftLbl = createSvgEl('text', { x: 52, y, class: lblClass });
     leftLbl.textContent = ROW_NAMES[r];
     coordsLayer.appendChild(leftLbl);
 
-    const rightLbl = createSvgEl('text', { x: 908, y, class: 'coord-label' });
+    const rightLbl = createSvgEl('text', { x: 908, y, class: lblClass });
     rightLbl.textContent = ROW_NAMES[r];
     coordsLayer.appendChild(rightLbl);
   }
@@ -1449,7 +1544,15 @@ function renderBoardDynamicLayers() {
   const isPreview = Boolean(state.previewedTurn);
 
   if (turnToVisualize && turnToVisualize.steps.length > 0) {
-    const startSq = turnToVisualize.steps[0].from;
+    const hopFocus =
+      state.activeHopIndex !== null &&
+      state.activeHopIndex >= 0 &&
+      state.activeHopIndex < turnToVisualize.steps.length
+        ? state.activeHopIndex
+        : null;
+
+    const startSq =
+      hopFocus !== null ? turnToVisualize.steps[hopFocus].from : turnToVisualize.steps[0].from;
     pathsLayer.appendChild(
       createSvgEl('circle', {
         cx: sqX(startSq),
@@ -1459,16 +1562,22 @@ function renderBoardDynamicLayers() {
       })
     );
 
-    // Highlight all captured enemy pieces with crimson target rings & X
+    const activeHopCapturedSet =
+      hopFocus !== null ? new Set(turnToVisualize.steps[hopFocus].captured) : null;
+
+    // Highlight captured enemy pieces with crimson target rings & X
     for (const capSq of turnToVisualize.totalCaptured) {
       const cx = sqX(capSq);
       const cy = sqY(capSq);
+      const isDimmed = activeHopCapturedSet && !activeHopCapturedSet.has(capSq);
+      const op = isDimmed ? '0.22' : '1';
       pathsLayer.appendChild(
         createSvgEl('circle', {
           cx,
           cy,
           r: 28,
-          class: 'captured-target-ring'
+          class: 'captured-target-ring',
+          opacity: op
         })
       );
       pathsLayer.appendChild(
@@ -1477,7 +1586,8 @@ function renderBoardDynamicLayers() {
           y1: cy - 10,
           x2: cx + 10,
           y2: cy + 10,
-          class: 'captured-x-mark'
+          class: 'captured-x-mark',
+          opacity: op
         })
       );
       pathsLayer.appendChild(
@@ -1486,7 +1596,8 @@ function renderBoardDynamicLayers() {
           y1: cy - 10,
           x2: cx - 10,
           y2: cy + 10,
-          class: 'captured-x-mark'
+          class: 'captured-x-mark',
+          opacity: op
         })
       );
     }
@@ -1497,6 +1608,8 @@ function renderBoardDynamicLayers() {
       const y1 = sqY(step.from);
       const x2 = sqX(step.to);
       const y2 = sqY(step.to);
+      const isDimmedHop = hopFocus !== null && hopFocus !== idxStep;
+      const hopOpacity = isDimmedHop ? '0.24' : '1';
 
       // Shorten arrow slightly so arrowhead lands cleanly at edge of target
       const dx = x2 - x1;
@@ -1512,7 +1625,8 @@ function renderBoardDynamicLayers() {
           x2: tx,
           y2: ty,
           class: isPreview ? 'preview-step-line' : 'solver-step-line',
-          'marker-end': isPreview ? 'url(#arrow-cyan)' : 'url(#arrow-gold)'
+          'marker-end': isPreview ? 'url(#arrow-cyan)' : 'url(#arrow-gold)',
+          opacity: hopOpacity
         })
       );
 
@@ -1523,14 +1637,16 @@ function renderBoardDynamicLayers() {
         createSvgEl('circle', {
           cx: mx,
           cy: my,
-          r: 11,
-          class: 'solver-step-badge'
+          r: hopFocus === idxStep ? 13 : 11,
+          class: 'solver-step-badge',
+          opacity: hopOpacity
         })
       );
       const badgeTxt = createSvgEl('text', {
         x: mx,
         y: my,
-        class: 'solver-step-text'
+        class: 'solver-step-text',
+        opacity: hopOpacity
       });
       badgeTxt.textContent = String(idxStep + 1);
       pathsLayer.appendChild(badgeTxt);
@@ -1925,6 +2041,7 @@ function renderAssistantSidebar() {
     return;
   }
 
+  const isGuided = state.uiMode === 'guided';
   const rawScore = state.solverResult?.evalScore ?? 0;
   const displayEval =
     Math.abs(rawScore) > 50000
@@ -1932,18 +2049,31 @@ function renderAssistantSidebar() {
         ? 'WINNING'
         : 'LOSING'
       : `${rawScore >= 0 ? '+' : ''}${(rawScore / 100).toFixed(1)}`;
-  evalEl.innerHTML = state.solverThinking
-    ? `<span class="spinner-ring" style="display:inline-block;vertical-align:middle;margin-right:5px;"></span>D${state.solverResult?.depthReached || 1} • ${displayEval}`
-    : `D${state.solverResult?.depthReached || 1} • Eval: ${displayEval}`;
+
+  if (isGuided) {
+    evalEl.innerHTML = state.solverThinking
+      ? `<span class="spinner-ring" style="display:inline-block;vertical-align:middle;margin-right:5px;"></span>Thinking...`
+      : `🧭 Guided View`;
+  } else {
+    evalEl.innerHTML = state.solverThinking
+      ? `<span class="spinner-ring" style="display:inline-block;vertical-align:middle;margin-right:5px;"></span>D${state.solverResult?.depthReached || 1} • ${displayEval}`
+      : `D${state.solverResult?.depthReached || 1} • Eval: ${displayEval}`;
+  }
 
   const allRankedTurns = state.solverResult?.rankedTurns || [];
 
   if (state.activeTurnOwner === 'player') {
-    titleEl.textContent = 'SOLVER RECOMMENDATION (YOUR MOVE)';
+    titleEl.textContent = isGuided
+      ? 'YOUR TURN — STEP-BY-STEP TV GUIDE'
+      : 'SOLVER RECOMMENDATION (YOUR MOVE)';
     subEl.textContent = state.solverThinking
       ? `Deepening search in background (currently Depth ${state.solverResult?.depthReached || 1})... UI remains interactive:`
-      : `Searched ${state.solverResult?.depthReached || 1} plies ahead. Follow these steps in-game:`;
-    listTitleEl.textContent = 'ALL YOUR LEGAL TURNS (RANKED)';
+      : isGuided
+        ? 'Copy these exact moves onto your Assassin\'s Creed screen, then click the gold button:'
+        : `Searched ${state.solverResult?.depthReached || 1} plies ahead. Follow these steps in-game:`;
+    listTitleEl.textContent = isGuided
+      ? 'OTHER LEGAL MOVES YOU CAN PLAY'
+      : 'ALL YOUR LEGAL TURNS (RANKED)';
     listHelperEl.textContent =
       'Hover or click any alternative turn to preview its arrows, or filter by starting piece:';
 
@@ -1952,21 +2082,84 @@ function renderAssistantSidebar() {
     if (!activeTurnToShow) {
       bodyEl.innerHTML = `<div class="empty-history">No legal moves available.</div>`;
     } else {
+      const firstStep = activeTurnToShow.steps[0];
+      const totalHops = activeTurnToShow.steps.length;
+      const hopFocus =
+        state.activeHopIndex !== null &&
+        state.activeHopIndex >= 0 &&
+        state.activeHopIndex < totalHops
+          ? state.activeHopIndex
+          : null;
+
+      const tvLocatorHtml =
+        isGuided && firstStep
+          ? `<div class="tv-locator-card">
+               <span class="tv-locator-eyebrow">📍 FIND THIS PIECE ON YOUR TV</span>
+               <div class="tv-locator-main">
+                 Piece <strong>${sqName(firstStep.from)}</strong> — <span>${describeSquareForTV(firstStep.from)}</span>
+               </div>
+             </div>`
+          : '';
+
+      let hopStepperHtml = '';
+      if (totalHops > 1) {
+        const hopPills = [
+          `<button type="button" class="hop-pill ${hopFocus === null ? 'active' : ''}" data-hop="all">All Hops (${totalHops})</button>`,
+          ...activeTurnToShow.steps.map(
+            (_, idxH) =>
+              `<button type="button" class="hop-pill ${hopFocus === idxH ? 'active' : ''}" data-hop="${idxH}">Hop ${idxH + 1}</button>`
+          )
+        ].join('');
+        hopStepperHtml = `
+          <div class="hop-stepper-bar" id="hop-stepper-bar">
+            <div class="hop-pills-group">${hopPills}</div>
+            <div class="hop-nav-btns">
+              <button type="button" class="hop-nav-btn" id="btn-hop-prev" title="Highlight previous hop">◀</button>
+              <button type="button" class="hop-nav-btn" id="btn-hop-next" title="Highlight next hop">▶</button>
+            </div>
+          </div>
+        `;
+      }
+
       const stepsHtml = activeTurnToShow.steps
         .map((s, i) => {
-          const capText =
-            s.captured.length > 0
-              ? `${s.type === 'approach' ? 'Approach' : 'Withdrawal'} capture: removes ${s.captured.map(sqName).join(', ')}`
-              : 'Paika (non-capturing move)';
+          const isFocusedStep = hopFocus === i;
+          const isDimmedStep = hopFocus !== null && hopFocus !== i;
+          const dirDesc = describeDirectionForTV(s.dir);
+          const toDesc = describeSquareForTV(s.to);
+          const capList = s.captured.map(sqName).join(', ');
+
+          let capText = '';
+          if (isGuided) {
+            if (s.captured.length > 0) {
+              const whereWords =
+                s.type === 'approach'
+                  ? '<strong>IN FRONT</strong> of your move'
+                  : '<strong>BEHIND</strong> where you started';
+              capText = `Lands on <strong>${sqName(s.to)}</strong> (${toDesc}) • Captures ${whereWords}: ${capList}`;
+            } else {
+              capText = `Lands on <strong>${sqName(s.to)}</strong> (${toDesc}) • Free move (no captures available)`;
+            }
+          } else {
+            capText =
+              s.captured.length > 0
+                ? `${s.type === 'approach' ? 'Approach' : 'Withdrawal'} capture: removes ${capList}`
+                : 'Paika (non-capturing move)';
+          }
+
           const ambigBadge = s.ambiguous
-            ? `<span class="ambiguous-choice-pill" title="Both Approach & Withdrawal are possible on this step — make sure you pick ${s.type === 'approach' ? 'APPROACH' : 'WITHDRAWAL'} in Assassin's Creed!">⚠️ Choose ${s.type.toUpperCase()}</span>`
+            ? isGuided
+              ? `<span class="ambiguous-choice-pill" title="AC4 will prompt you to choose which pieces to capture!">⚠️ In AC4: Pick pieces ${s.type === 'approach' ? 'IN FRONT' : 'BEHIND'} (${s.type.toUpperCase()})</span>`
+              : `<span class="ambiguous-choice-pill" title="Both Approach & Withdrawal are possible on this step — make sure you pick ${s.type === 'approach' ? 'APPROACH' : 'WITHDRAWAL'} in Assassin's Creed!">⚠️ Choose ${s.type.toUpperCase()}</span>`
             : '';
+
           return `
-            <li class="step-item">
+            <li class="step-item ${isFocusedStep ? 'hop-focused' : ''} ${isDimmedStep ? 'hop-dimmed' : ''}" data-step-idx="${i}">
               <span class="step-num">${i + 1}</span>
               <div class="step-details">
                 <div class="step-coord-row">
                   <span class="step-coord">Move ${sqName(s.from)} → ${sqName(s.to)}</span>
+                  ${isGuided ? `<span class="dir-tv-badge">${dirDesc}</span>` : ''}
                   ${ambigBadge}
                 </div>
                 <span class="step-meta">${capText}</span>
@@ -1978,17 +2171,19 @@ function renderAssistantSidebar() {
 
       const earlyStopHtml = activeTurnToShow.stoppedEarly
         ? `<div class="early-stop-notice">
-             ⚠️ <strong>TACTICAL EARLY STOP:</strong> Do NOT take the next capture after landing on <strong>${sqName(activeTurnToShow.steps[activeTurnToShow.steps.length - 1].to)}</strong>! End your turn early in Assassin's Creed (press B / Circle / End Turn) to avoid a trap.
+             ⚠️ <strong>STOP JUMPING EARLY IN AC4:</strong> After landing on <strong>${sqName(activeTurnToShow.steps[activeTurnToShow.steps.length - 1].to)}</strong>, do NOT take the next capture! Press <strong>End Turn</strong> (B / Circle / Back) in Assassin's Creed to avoid a trap.
            </div>`
         : '';
 
       bodyEl.innerHTML = `
         <div class="solver-steps-container">
+          ${tvLocatorHtml}
           <div class="solver-summary-box">
             <span class="solver-summary-main">${formatTurnNotation(activeTurnToShow)}</span>
             <span class="solver-summary-captures">${activeTurnToShow.totalCaptured.length} Captured</span>
           </div>
-          <ul class="step-checklist">${stepsHtml}</ul>
+          ${hopStepperHtml}
+          <ul class="step-checklist" id="solver-step-checklist">${stepsHtml}</ul>
           ${earlyStopHtml}
           <button type="button" class="btn btn-primary" id="btn-apply-solver-main" style="width:100%;margin-top:2px;">
             ✓ I Played This Move — Switch to AI Turn (Enter)
@@ -1999,6 +2194,37 @@ function renderAssistantSidebar() {
       document
         .getElementById('btn-apply-solver-main')
         ?.addEventListener('click', () => commitFullTurn(activeTurnToShow));
+
+      // Wire interactive hop stepper pills & prev/next buttons if present
+      if (totalHops > 1) {
+        bodyEl.querySelectorAll('.hop-pill').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const val = btn.getAttribute('data-hop');
+            state.activeHopIndex = val === 'all' ? null : Number(val);
+            renderAll();
+          });
+        });
+        document.getElementById('btn-hop-prev')?.addEventListener('click', () => {
+          if (state.activeHopIndex === null) state.activeHopIndex = 0;
+          else if (state.activeHopIndex > 0) state.activeHopIndex--;
+          else state.activeHopIndex = null;
+          renderAll();
+        });
+        document.getElementById('btn-hop-next')?.addEventListener('click', () => {
+          if (state.activeHopIndex === null) state.activeHopIndex = 0;
+          else if (state.activeHopIndex < totalHops - 1) state.activeHopIndex++;
+          else state.activeHopIndex = null;
+          renderAll();
+        });
+        bodyEl.querySelectorAll('.step-item').forEach(li => {
+          li.style.cursor = 'pointer';
+          li.addEventListener('click', () => {
+            const idxStep = Number(li.getAttribute('data-step-idx'));
+            state.activeHopIndex = state.activeHopIndex === idxStep ? null : idxStep;
+            renderAll();
+          });
+        });
+      }
     }
   } else {
     // AI's Turn
@@ -2082,6 +2308,7 @@ function renderAssistantSidebar() {
         pill.type = 'button';
         pill.className = `filter-pill ${state.filterStartSq === sq ? 'active' : ''}`;
         pill.textContent = `${sqName(sq)} (${countForSq})`;
+        pill.setAttribute('title', describeSquareForTV(sq));
         pill.addEventListener('click', () => {
           const next = state.filterStartSq === sq ? null : sq;
           state.filterStartSq = next;
@@ -2113,11 +2340,21 @@ function renderAssistantSidebar() {
     const capNames =
       turn.totalCaptured.length > 0
         ? `Captures: ${turn.totalCaptured.map(sqName).join(', ')}`
-        : 'Paika move (0 captures)';
+        : isGuided
+          ? 'Free move (0 captures)'
+          : 'Paika move (0 captures)';
+
+    const firstFrom = turn.steps[0]?.from;
+    const arrowsSummary = turn.steps.map(s => directionArrowForTV(s.dir)).join(' ');
+    const guidedTvLine =
+      isGuided && firstFrom !== undefined
+        ? `<span class="move-row-tv-hint">📍 ${describeSquareForTV(firstFrom)} • Moves ${arrowsSummary}</span>`
+        : '';
 
     row.innerHTML = `
       <div class="move-row-info">
         <span class="move-row-notation">${isBest ? '★ ' : ''}${formatTurnNotation(turn)}</span>
+        ${guidedTvLine}
         <span class="move-row-sub">${capNames}</span>
       </div>
       <div class="move-row-actions">
@@ -2143,6 +2380,7 @@ function renderAssistantSidebar() {
 
     row.addEventListener('click', () => {
       state.previewedTurn = state.previewedTurn === turn ? null : turn;
+      state.activeHopIndex = null;
       renderAll();
     });
 
@@ -2180,13 +2418,25 @@ function renderHistoryLog() {
  * ============================================================================ */
 
 function initEvents() {
+  const syncColorAndFirstControls = () => {
+    document.querySelectorAll('#player-color-control .seg-btn').forEach(b => {
+      b.classList.toggle('active', (b.dataset.value === 'W' ? WHITE : BLACK) === state.playerColor);
+    });
+    document.querySelectorAll('#first-turn-control .seg-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.value === state.firstMover);
+    });
+    document.getElementById('wiz-color-white')?.classList.toggle('active', state.playerColor === WHITE);
+    document.getElementById('wiz-color-black')?.classList.toggle('active', state.playerColor === BLACK);
+    document.getElementById('wiz-first-player')?.classList.toggle('active', state.firstMover === 'player');
+    document.getElementById('wiz-first-ai')?.classList.toggle('active', state.firstMover === 'ai');
+  };
+
   // Player Color Segmented Control
   const colorBtns = document.querySelectorAll('#player-color-control .seg-btn');
   colorBtns.forEach(btn => {
     btn.addEventListener('click', () => {
-      colorBtns.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
       state.playerColor = btn.dataset.value === 'W' ? WHITE : BLACK;
+      syncColorAndFirstControls();
       startNewGame();
     });
   });
@@ -2195,11 +2445,93 @@ function initEvents() {
   const firstBtns = document.querySelectorAll('#first-turn-control .seg-btn');
   firstBtns.forEach(btn => {
     btn.addEventListener('click', () => {
-      firstBtns.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
       state.firstMover = btn.dataset.value; // 'player' | 'ai'
+      syncColorAndFirstControls();
       startNewGame();
     });
+  });
+
+  // Companion View Mode (Guided vs Pro) Segmented Control
+  const modeBtns = document.querySelectorAll('#ui-mode-control .seg-btn');
+  modeBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      modeBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      state.uiMode = btn.dataset.mode === 'pro' ? 'pro' : 'guided';
+      state.activeHopIndex = null;
+      persistStateToStorage();
+      renderAll();
+    });
+  });
+
+  // Interactive 3-Step Setup & Beginner Guide Modal
+  const wizardModal = document.getElementById('wizard-modal');
+  let currentWizStep = 1;
+
+  const setWizardStep = stepNum => {
+    currentWizStep = Math.max(1, Math.min(3, stepNum));
+    for (let i = 1; i <= 3; i++) {
+      document.getElementById(`wiz-tab-${i}`)?.classList.toggle('active', i === currentWizStep);
+      document.getElementById(`wiz-pane-${i}`)?.classList.toggle('hidden', i !== currentWizStep);
+    }
+    const prevBtn = document.getElementById('btn-wiz-prev');
+    const nextBtn = document.getElementById('btn-wiz-next');
+    if (prevBtn) prevBtn.disabled = currentWizStep === 1;
+    if (nextBtn) {
+      nextBtn.textContent =
+        currentWizStep === 1
+          ? 'Next: How to Play Your Turn →'
+          : currentWizStep === 2
+            ? 'Next: Inputting the AI\'s Move →'
+            : '✓ Start Winning Match';
+    }
+  };
+
+  const openWizard = (stepNum = 1) => {
+    syncColorAndFirstControls();
+    setWizardStep(stepNum);
+    wizardModal?.classList.remove('hidden');
+  };
+
+  const closeWizard = () => {
+    wizardModal?.classList.add('hidden');
+    try {
+      localStorage.setItem('fanorona_ac4_onboarded_v1', '1');
+    } catch (_) {}
+  };
+
+  document.getElementById('btn-open-wizard')?.addEventListener('click', () => openWizard(1));
+  document.getElementById('btn-close-wizard')?.addEventListener('click', () => closeWizard());
+  document.getElementById('btn-wiz-start-now')?.addEventListener('click', () => closeWizard());
+  document.getElementById('btn-wiz-prev')?.addEventListener('click', () => setWizardStep(currentWizStep - 1));
+  document.getElementById('btn-wiz-next')?.addEventListener('click', () => {
+    if (currentWizStep < 3) setWizardStep(currentWizStep + 1);
+    else closeWizard();
+  });
+
+  for (let i = 1; i <= 3; i++) {
+    document.getElementById(`wiz-tab-${i}`)?.addEventListener('click', () => setWizardStep(i));
+  }
+
+  document.getElementById('wiz-color-white')?.addEventListener('click', () => {
+    state.playerColor = WHITE;
+    syncColorAndFirstControls();
+    startNewGame();
+  });
+  document.getElementById('wiz-color-black')?.addEventListener('click', () => {
+    state.playerColor = BLACK;
+    syncColorAndFirstControls();
+    startNewGame();
+  });
+  document.getElementById('wiz-first-player')?.addEventListener('click', () => {
+    state.firstMover = 'player';
+    syncColorAndFirstControls();
+    startNewGame();
+  });
+  document.getElementById('wiz-first-ai')?.addEventListener('click', () => {
+    state.firstMover = 'ai';
+    syncColorAndFirstControls();
+    startNewGame();
   });
 
   // Solver Depth Select
@@ -2233,7 +2565,7 @@ function initEvents() {
     updateUndoRedoButtons();
     editorBanner.classList.toggle('hidden', !enabled);
     editToggleBtn.classList.toggle('active', enabled);
-    editBtnLabel.textContent = enabled ? 'Finish Editing' : 'Setup Custom Board';
+    editBtnLabel.textContent = enabled ? 'Finish Editing' : 'Custom Board';
     if (enabled) {
       nextTurnSelect.value = state.activeTurnOwner;
     } else {
@@ -2291,9 +2623,15 @@ function initEvents() {
   // - Ctrl/Cmd+Z: Undo
   // - Ctrl/Cmd+Y or Ctrl/Cmd+Shift+Z: Redo
   // - Enter / Space (when on Player Turn): Apply recommended move
-  // - Escape: Clear selection / cancel preview
+  // - Escape: Close wizard / clear selection / cancel preview
   window.addEventListener('keydown', e => {
     if (e.target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
+    if (wizardModal && !wizardModal.classList.contains('hidden')) {
+      if (e.key === 'Escape') {
+        closeWizard();
+      }
+      return;
+    }
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
       e.preventDefault();
       if (e.shiftKey) redoMove();
@@ -2311,6 +2649,7 @@ function initEvents() {
         state.selectedSq = null;
         state.filterStartSq = null;
         state.previewedTurn = null;
+        state.activeHopIndex = null;
       }
       renderAll();
     } else if (

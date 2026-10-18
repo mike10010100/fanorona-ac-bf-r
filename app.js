@@ -804,7 +804,17 @@ function getActiveColor() {
     : opponentOf(state.playerColor);
 }
 
+function rollbackUncommittedChain() {
+  if (state.chainInProgress && state.chainBoardBeforeTurn) {
+    state.board = state.chainBoardBeforeTurn.slice();
+  }
+  clearInteractiveSelection();
+}
+
 function saveSnapshotForUndo() {
+  if (state.chainInProgress && state.chainBoardBeforeTurn) {
+    state.board = state.chainBoardBeforeTurn.slice();
+  }
   state.history.push({
     board: state.board.slice(),
     activeTurnOwner: state.activeTurnOwner,
@@ -886,8 +896,8 @@ function startNewGame() {
 function undoMove() {
   if (state.chainInProgress) {
     // Cancel the in-progress chain back to the start of this turn
-    state.board = state.chainBoardBeforeTurn.slice();
-    clearInteractiveSelection();
+    rollbackUncommittedChain();
+    updateUndoRedoButtons();
     recomputeAndRender();
     return;
   }
@@ -909,6 +919,7 @@ function undoMove() {
 
 function redoMove() {
   if (state.redoStack.length === 0) return;
+  rollbackUncommittedChain();
   state.history.push({
     board: state.board.slice(),
     activeTurnOwner: state.activeTurnOwner,
@@ -959,6 +970,9 @@ function commitFullTurn(turn) {
 function finishInteractiveChain() {
   if (!state.chainInProgress) return;
   const who = state.activeTurnOwner;
+  const stoppedEarly =
+    state.chainPieceSq !== null && getInteractiveValidStepsFrom(state.chainPieceSq).length > 0;
+
   // Save the pre-chain board into history so Undo restores the entire turn cleanly
   state.history.push({
     board: state.chainBoardBeforeTurn.slice(),
@@ -973,7 +987,7 @@ function finishInteractiveChain() {
     steps: state.chainSteps,
     totalCaptured,
     finalBoard: state.board.slice(),
-    stoppedEarly: false
+    stoppedEarly
   };
   state.moveLog.unshift({
     who,
@@ -2215,7 +2229,8 @@ function initEvents() {
 
   function setEditMode(enabled) {
     state.editMode = enabled;
-    clearInteractiveSelection();
+    rollbackUncommittedChain();
+    updateUndoRedoButtons();
     editorBanner.classList.toggle('hidden', !enabled);
     editToggleBtn.classList.toggle('active', enabled);
     editBtnLabel.textContent = enabled ? 'Finish Editing' : 'Setup Custom Board';
@@ -2287,10 +2302,16 @@ function initEvents() {
       e.preventDefault();
       redoMove();
     } else if (e.key === 'Escape') {
-      state.selectedSq = null;
-      state.filterStartSq = null;
-      state.previewedTurn = null;
-      state.pendingAmbiguousStep = null;
+      if (state.pendingAmbiguousStep) {
+        state.pendingAmbiguousStep = null;
+      } else if (state.chainInProgress) {
+        rollbackUncommittedChain();
+        updateUndoRedoButtons();
+      } else {
+        state.selectedSq = null;
+        state.filterStartSq = null;
+        state.previewedTurn = null;
+      }
       renderAll();
     } else if (
       e.key === 'Enter' &&

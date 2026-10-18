@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Fanorona Tactical Solver — ACIV: Black Flag Resynched</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 36'%3E%3Crect width='36' height='36' rx='8' fill='%23111722'/%3E%3Cpath d='M18 4 L30 29 L24 29 L18 15 L12 29 L6 29 Z' fill='none' stroke='%23f5b942' stroke-width='2.4'/%3E%3Ccircle cx='18' cy='9.5' r='2.2' fill='%23f5b942'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
@@ -29,8 +30,8 @@
 
       <div class="toolbar">
         <div class="control-group">
-          <label for="player-color-select">My Piece Color (Bottom)</label>
-          <div class="segmented-control" id="player-color-control">
+          <span class="control-label" id="lbl-player-color">My Piece Color (Bottom)</span>
+          <div class="segmented-control" id="player-color-control" role="group" aria-labelledby="lbl-player-color">
             <button type="button" class="seg-btn active" data-value="W" id="btn-play-white" title="You play White pieces">
               <span class="piece-dot white-dot"></span> White (Light)
             </button>
@@ -41,8 +42,8 @@
         </div>
 
         <div class="control-group">
-          <label>Who Moves First?</label>
-          <div class="segmented-control" id="first-turn-control">
+          <span class="control-label" id="lbl-first-turn">Who Moves First?</span>
+          <div class="segmented-control" id="first-turn-control" role="group" aria-labelledby="lbl-first-turn">
             <button type="button" class="seg-btn active" data-value="player" id="btn-first-player">
               I Go First
             </button>
@@ -53,7 +54,7 @@
         </div>
 
         <div class="control-group">
-          <label for="solver-depth">Solver Depth</label>
+          <label class="control-label" for="solver-depth">Solver Depth</label>
           <select id="solver-depth" class="select-input">
             <option value="900">Fast (0.9s)</option>
             <option value="1800" selected>Master (1.8s)</option>

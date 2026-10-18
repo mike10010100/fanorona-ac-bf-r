@@ -106,7 +106,8 @@ body {
   gap: 3px;
 }
 
-.control-group label {
+.control-group label,
+.control-group .control-label {
   font-size: 0.65rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
